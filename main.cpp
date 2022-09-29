@@ -19,10 +19,7 @@
 
 #include "lvgl.h"
 #include "demos/lv_demos.h"
-#include "examples/lv_examples.h"
 #include "simple_ui/ui.h"
-
-//using namespace std;
 
 #define FLAG 0xDEADBEEF
 
@@ -76,11 +73,10 @@ void pwm_interrupt_handler() {
 		f_findnext(&dir, &fno);
 
 		// If all files were played then run searching routing again in root directory
-		if(fno.fattrib & AM_DIR) {
-			f_closedir(&dir);
+		while(fno.fattrib & AM_DIR) {
+			f_findfirst(&dir, &fno, "/", "*.mus");
 		}
 
-		f_findfirst(&dir, &fno, "/", "*.mus");
 		f_open(&music, fno.fname, FA_READ | FA_OPEN_EXISTING);
 		f_lseek(&music, 0);
 		f_read(&music, fil_buff, 88000, &bw);
