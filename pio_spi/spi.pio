@@ -1,0 +1,49 @@
+.program spi_cpha0
+.side_set 1
+
+out pins, 1 side 0 [1] ; Stall here on empty (sideset proceeds even if
+in pins, 1  side 1 [1] ; instruction stalls, so we stall with SCK low)
+
+.program spi_cpha1
+.side_set 1
+
+out x, 1    side 0     ; Stall here on empty (keep SCK deasserted)
+mov pins, x side 1 [1] ; Output data, assert SCK (mov pins uses OUT mapping)
+in pins, 1  side 0     ; Input data, deassert SCK
+
+% c-sdk {
+#include "hardware/gpio.h"
+#include "hardware/clocks.h"
+static inline void pio_spi_init(PIO pio, uint sm, uint prog_offs, uint n_bits, float freq, bool cpha, bool cpol, uint pin_mosi, uint pin_miso, uint pin_clk) {
+    pio_sm_config c = cpha ? spi_cpha1_program_get_default_config(prog_offs) : spi_cpha0_program_get_default_config(prog_offs);
+    float clkdiv = (float)clock_get_hz(clk_sys) / (freq * 4);
+
+    if(clkdiv < 1) clkdiv = 1.0f;
+
+    sm_config_set_out_pins(&c, pin_mosi, 1);
+    sm_config_set_in_pins(&c, pin_miso);
+    sm_config_set_sideset_pins(&c, pin_clk);
+
+    // Only support MSB-first in this example code (shift to left, auto push/pull, threshold=nbits)
+    sm_config_set_out_shift(&c, false, true, n_bits);
+    sm_config_set_in_shift(&c, false, true, n_bits);
+    sm_config_set_clkdiv(&c, clkdiv);
+
+    // MOSI, SCK output are low, MISO is input w/ pull-up
+    pio_sm_set_pins_with_mask(pio, sm, 0, (1u << pin_clk) | (1u << pin_mosi));
+    pio_sm_set_pindirs_with_mask(pio, sm, (1u << pin_clk) | (1u << pin_mosi), (1u << pin_clk) | (1u << pin_mosi) | (1u << pin_miso));
+    pio_gpio_init(pio, pin_mosi);
+    pio_gpio_init(pio, pin_miso);
+    pio_gpio_init(pio, pin_clk);
+    gpio_pull_up(pin_miso);
+
+    // The pin muxes can be configured to invert the output
+    gpio_set_outover(pin_clk, cpol ? GPIO_OVERRIDE_INVERT : GPIO_OVERRIDE_NORMAL);
+
+    // SPI is synchronous, so bypass input synchroniser to reduce input delay.
+    hw_set_bits(&pio->input_sync_bypass, 1u << pin_miso);
+
+    pio_sm_init(pio, sm, prog_offs, &c);
+    pio_sm_set_enabled(pio, sm, true);
+}
+%}
